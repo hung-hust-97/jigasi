@@ -108,7 +108,7 @@ public class VoskTranscriptionService
 //            return;
 //        }
 //        websocketUrl = (String) urlObject;
-        websocketUrl = "ws://10.2.5.95:18182/asr/" + participant.getRoomId() + participant.getId();
+        websocketUrl = "ws://10.1.6.47:18181/asr/" + participant.getRoomId() + participant.getId();
         username = participant.getName();
     }
 
