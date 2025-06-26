@@ -279,7 +279,7 @@ public class VoskTranscriptionService
             try {
                 JSONObject dataObject = jsonObject.getJSONObject("data");
                 message = dataObject.getString("predict_segment");
-
+                logger.info("active");
                 logger.info(username + ": " + message);
             } catch (Exception e) {
             }
