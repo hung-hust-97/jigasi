@@ -19,7 +19,6 @@ package org.jitsi.jigasi.transcription;
 
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import org.jitsi.utils.logging.Logger;
 import net.java.sip.communicator.impl.protocol.jabber.*;
 import net.java.sip.communicator.service.protocol.*;
 import org.jitsi.jigasi.*;
@@ -183,7 +182,7 @@ public class Participant
     Participant(Transcriber transcriber, String identifier, boolean filterAudio) {
         this.transcriber = transcriber;
         this.context = transcriber.getCallContext();
-        this.logger = (Logger) context.getLogger().createChildLogger(Participant.class.getName());
+        this.logger = context.getLogger().createChildLogger(Participant.class.getName());
         this.identifier = identifier;
         this.transcriptionServiceName = transcriber.getTranscriptionService().getClass().getSimpleName();
 
