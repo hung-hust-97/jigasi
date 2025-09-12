@@ -19,16 +19,15 @@ package org.jitsi.jigasi.transcription;
 
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
-import net.java.sip.communicator.impl.protocol.jabber.ChatRoomMemberJabberImpl;
-import net.java.sip.communicator.service.protocol.ChatRoomMember;
-import net.java.sip.communicator.service.protocol.ConferenceMember;
-import org.jitsi.jigasi.stats.Statistics;
-import org.jitsi.jigasi.util.Util;
 import org.jitsi.utils.logging.Logger;
-import org.jitsi.xmpp.extensions.jitsimeet.AvatarIdPacketExtension;
-import org.jitsi.xmpp.extensions.jitsimeet.IdentityPacketExtension;
-import org.jitsi.xmpp.extensions.jitsimeet.TranscriptionRequestExtension;
-import org.jivesoftware.smack.packet.Presence;
+import net.java.sip.communicator.impl.protocol.jabber.*;
+import net.java.sip.communicator.service.protocol.*;
+import org.jitsi.jigasi.*;
+import org.jitsi.jigasi.util.Util;
+import org.jitsi.xmpp.extensions.jitsimeet.*;
+import org.jitsi.utils.logging2.*;
+import org.jivesoftware.smack.packet.*;
+import org.jitsi.jigasi.stats.*;
 
 import javax.media.format.AudioFormat;
 import java.io.ByteArrayInputStream;
@@ -43,7 +42,7 @@ import java.util.concurrent.ExecutorService;
 /**
  * This class describes a participant in a conference whose
  * transcription is required. It manages the transcription if its own audio
- * will locally buffered until enough audio is collected
+ * locally buffers until enough audio is collected
  *
  * @author Nik Vaessen
  * @author Boris Grozev
@@ -53,7 +52,7 @@ public class Participant
     /**
      * The logger of this class
      */
-    private final static Logger logger = Logger.getLogger(Participant.class);
+    private final Logger logger;
 
     /**
      * The expected amount of bytes each given buffer will have. Webrtc
@@ -83,7 +82,7 @@ public class Participant
      * TODO: assign unique easy to read names to unknown participants (e.g.
      * Speaker 1, Speaker 2, etc.).
      */
-    public static final String UNKNOWN_NAME = "Fellow Jitser";
+    public static final String UNKNOWN_NAME = "CMC ATIer";
 
     /**
      * The audio ssrc when it is not known yet
@@ -170,9 +169,10 @@ public class Participant
      * @param transcriber the transcriber which created this participant
      * @param identifier  the string which is used to identify this participant
      */
-    Participant(Transcriber transcriber, String identifier) {
-        this(transcriber, identifier, false);
-    }
+//    Participant(Transcriber transcriber, String identifier) {
+//        this(transcriber, identifier, false);
+//    }
+    private CallContext context;
 
     /**
      * Create a participant with a given name and audio stream
@@ -182,6 +182,8 @@ public class Participant
      */
     Participant(Transcriber transcriber, String identifier, boolean filterAudio) {
         this.transcriber = transcriber;
+        this.context = transcriber.getCallContext();
+        this.logger = (Logger) context.getLogger().createChildLogger(Participant.class.getName());
         this.identifier = identifier;
         this.transcriptionServiceName = transcriber.getTranscriptionService().getClass().getSimpleName();
 
@@ -558,7 +560,7 @@ public class Participant
     @Override
     public void failed(FailureReason reason) {
         isCompleted = true;
-        logger.error(getDebugName() + " transcription failed: " + reason);
+        logger.error("transcription failed: " + reason);
         transcriber.stop(reason);
     }
 
@@ -851,5 +853,14 @@ public class Participant
         }
 
         return downsampledBytes;
+    }
+    /**
+     * Retrieves the current call context.
+     *
+     * @return the current CallContext instance associated with this object
+     */
+    public CallContext getCallContext()
+    {
+        return this.context;
     }
 }

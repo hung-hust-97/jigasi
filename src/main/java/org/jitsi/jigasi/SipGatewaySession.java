@@ -30,7 +30,7 @@ import org.jitsi.jigasi.util.*;
 import org.jitsi.service.neomedia.*;
 import org.jitsi.utils.concurrent.*;
 import org.jitsi.utils.*;
-import org.jitsi.utils.logging.Logger;
+import org.jitsi.utils.logging2.*;
 import org.jivesoftware.smack.packet.*;
 import org.json.simple.*;
 import org.jxmpp.stringprep.*;
@@ -54,7 +54,7 @@ public class SipGatewaySession
     /**
      * The logger.
      */
-    private final static Logger logger = Logger.getLogger(SipGatewaySession.class);
+    private final Logger logger;
 
     /**
      * The name of the room password header to check in headers for a room
@@ -290,8 +290,9 @@ public class SipGatewaySession
      * from the sip direction. Skips forwarding RTCP traffic which is not
      * intended for that direction (particularly we had seen RTCP.BYE for
      * to cause media to stop (even when ssrc is not matching)).
+     * Used for muting the media stream.
      */
-    private SipCallKeepAliveTransformer transformerMonitor;
+    private SipCallTransformer callTransformer;
 
     /**
      * Whether we had sent indication that XMPP connection terminated and
@@ -368,6 +369,7 @@ public class SipGatewaySession
     public SipGatewaySession(SipGateway gateway, CallContext callContext)
     {
         super(gateway, callContext);
+        this.logger = callContext.getLogger().createChildLogger(SipGatewaySession.class.getName());
         this.sipProvider = gateway.getSipProvider();
         this.jitsiMeetTools
             = sipProvider.getOperationSet(
@@ -534,7 +536,7 @@ public class SipGatewaySession
 
         if (error != null)
         {
-            logger.error(this.callContext + " " + error, error);
+            logger.error(error.toString(), error);
 
             if (error instanceof OperationFailedException
                 && !CallManager.isHealthy())
@@ -548,6 +550,7 @@ public class SipGatewaySession
     }
 
     /**
+     * jvbConferenceCall can be null in case of outgoing call where the xmpp meeting is not live.
      * {@inheritDoc}
      */
     Exception onConferenceCallStarted(Call jvbConferenceCall)
@@ -571,10 +574,7 @@ public class SipGatewaySession
         {
             if (this.sipCall != null)
             {
-                logger.info(
-                    this.callContext +
-                    " Connecting existing sip call to incoming xmpp call "
-                        + this);
+                logger.info("Connecting existing sip call to incoming xmpp call " + this);
 
                 jvbConferenceCall.setConference(sipCall.getConference());
 
@@ -595,16 +595,6 @@ public class SipGatewaySession
 
                 return null;
             }
-
-            //sendPresenceExtension(
-              //  createPresenceExtension(
-                //    SipGatewayExtension.STATE_RINGING, null));
-
-            //if (jvbConference != null)
-            //{
-              //  jvbConference.setPresenceStatus(
-                //    SipGatewayExtension.STATE_RINGING);
-            //}
 
             // Make an outgoing call
             final OperationSetBasicTelephony tele
@@ -654,12 +644,14 @@ public class SipGatewaySession
                 this.sipCall = tele.createCall(outboundPrefix + destination);
                 this.initSipCall();
 
-                // Outgoing SIP connection mode sets common conference object
-                // just after the call has been created
-                jvbConferenceCall.setConference(sipCall.getConference());
+                if (jvbConferenceCall != null)
+                {
+                    // Outgoing SIP connection mode sets common conference object
+                    // just after the call has been created
+                    jvbConferenceCall.setConference(sipCall.getConference());
+                }
 
-                logger.info(
-                    this.callContext + " Created outgoing call to " + this);
+                logger.info("Created outgoing call to " + this);
 
                 //FIXME: It might be already in progress or ended ?!
                 if (!CallState.CALL_INITIALIZATION.equals(sipCall.getCallState()))
@@ -675,7 +667,10 @@ public class SipGatewaySession
 
         try
         {
-            CallManager.acceptCall(jvbConferenceCall);
+            if (jvbConferenceCall != null)
+            {
+                CallManager.acceptCall(jvbConferenceCall);
+            }
         }
         catch(OperationFailedException e)
         {
@@ -713,7 +708,7 @@ public class SipGatewaySession
         if (sipCall == null)
             return;
 
-        logger.info(this.callContext + " Sip call ended: " + sipCall);
+        logger.info("Sip call ended: " + sipCall);
 
         sipCall.removeCallChangeListener(callStateListener);
 
@@ -722,10 +717,10 @@ public class SipGatewaySession
         if (peerStateListener != null)
             peerStateListener.unregister();
 
-        if (this.transformerMonitor != null)
+        if (this.callTransformer != null)
         {
-            this.transformerMonitor.dispose();
-            this.transformerMonitor = null;
+            this.callTransformer.dispose();
+            this.callTransformer = null;
         }
 
         this.soundNotificationManager.stop();
@@ -791,18 +786,7 @@ public class SipGatewaySession
     @Override
     public void onSessionStartMuted(boolean[] startMutedFlags)
     {
-        logger.info(this.callContext + " Received start audio muted:" + startMutedFlags[0]);
-        if (this.jvbConference != null)
-        {
-            if (this.jvbConference.getAudioModeration() != null)
-            {
-                this.jvbConference.getAudioModeration().setStartAudioMuted(startMutedFlags[0]);
-            }
-        }
-        else
-        {
-            logger.warn(this.callContext + " Received start muted with no jvbConference created.");
-        }
+        // Not used.
     }
 
     /**
@@ -821,8 +805,7 @@ public class SipGatewaySession
         {
             if (logger.isTraceEnabled())
             {
-                logger.trace(this.callContext
-                    + " Ignoring event for non session call.");
+                logger.trace("Ignoring event for non session call.");
             }
             return;
         }
@@ -844,7 +827,7 @@ public class SipGatewaySession
         }
         else
         {
-            logger.warn(this.callContext + " Received json with no jvbConference created.");
+            logger.warn("Received json with no jvbConference created.");
         }
     }
 
@@ -981,8 +964,7 @@ public class SipGatewaySession
                     }
                     catch (OperationFailedException ofe)
                     {
-                        logger.info(this.callContext
-                            + " Failed to forward a DTMF tone: " + ofe);
+                        logger.info("Failed to forward a DTMF tone: " + ofe);
                     }
                 }
                 else
@@ -1174,9 +1156,14 @@ public class SipGatewaySession
             if (this.jvbConference.getAudioModeration() != null)
             {
                 // notify user that is muted
-                this.jvbConference.getAudioModeration().mute();
+                this.jvbConference.getAudioModeration().muteViaSIPInfo();
             }
         }
+    }
+
+    public void mute(boolean bMuted)
+    {
+        callTransformer.mute(bMuted);
     }
 
     /**
@@ -1209,6 +1196,23 @@ public class SipGatewaySession
         {
             logger.error("Cannot send visitor message", ex);
         }
+
+        if (this.callContext.getDestination() != null && this.getSipCall() == null)
+        {
+            Exception error = this.onConferenceCallStarted(null);
+
+            if (error != null)
+            {
+                logger.error(error.toString(), error);
+
+                if (error instanceof OperationFailedException)
+                {
+                    OperationFailedException ex = (OperationFailedException)error;
+
+                    hangUpSipCall(ex.getErrorCode(), ex.getMessage());
+                }
+            }
+        }
     }
 
     /**
@@ -1238,9 +1242,8 @@ public class SipGatewaySession
                 MediaStream stream = mediaHandler.getStream(MediaType.AUDIO);
                 if (stream != null)
                 {
-                    transformerMonitor = new SipCallKeepAliveTransformer(
-                        peerMedia.getMediaHandler(), stream);
-                    stream.setExternalTransformer(transformerMonitor);
+                    callTransformer = new SipCallTransformer(peerMedia.getMediaHandler(), stream);
+                    stream.setExternalTransformer(callTransformer);
                     return true;
                 }
             }
@@ -1332,7 +1335,7 @@ public class SipGatewaySession
         }
         catch (Exception ex)
         {
-            logger.error(this.callContext + " Error sending lobby joined notification", ex);
+            logger.error("Error sending lobby joined notification", ex);
         }
     }
 
@@ -1353,7 +1356,7 @@ public class SipGatewaySession
         }
         catch (Exception ex)
         {
-            logger.error(this.callContext + " Error sending lobby left notification", ex);
+            logger.error("Error sending lobby left notification", ex);
         }
     }
 
@@ -1374,7 +1377,7 @@ public class SipGatewaySession
         }
         catch (Exception ex)
         {
-            logger.error(this.callContext + " Error sending lobby is allowed to join", ex);
+            logger.error("Error sending lobby is allowed to join", ex);
         }
     }
 
@@ -1395,7 +1398,7 @@ public class SipGatewaySession
         }
         catch (Exception ex)
         {
-            logger.error(this.callContext + " Error sending lobby rejection notification", ex);
+            logger.error("Error sending lobby rejection notification", ex);
         }
     }
 
@@ -1415,10 +1418,13 @@ public class SipGatewaySession
          */
         private boolean totalStatsSent = false;
 
+        private static final int CHECK_INTERVAL_MS = 2000;
+        private final long start = System.currentTimeMillis();
+
         public ExpireMediaStream(AudioMediaStreamImpl stream)
         {
             // we want to check every 2 seconds for the media state
-            super(2000, false);
+            super(CHECK_INTERVAL_MS, false);
             this.stream = stream;
         }
 
@@ -1429,19 +1435,16 @@ public class SipGatewaySession
 
             try
             {
-                long lastReceived = stream.getLastInputActivityTime();
+                long lastReceived = Math.max(stream.getLastInputActivityTime(), start);
 
-                if (System.currentTimeMillis() - lastReceived
-                        > mediaDroppedThresholdMs)
+                if (System.currentTimeMillis() - lastReceived > mediaDroppedThresholdMs)
                 {
                     // we want to log only when we go from not-expired into
                     // expired state
                     if (!gatewayMediaDropped)
                     {
                         Statistics.incrementTotalMediaDropped();
-                        logger.error(
-                            SipGatewaySession.this.callContext +
-                            " Stopped receiving RTP for " + getSipCall());
+                        logger.error("Stopped receiving RTP for " + getSipCall());
 
                         if (!totalStatsSent)
                         {
@@ -1465,8 +1468,7 @@ public class SipGatewaySession
                 {
                     if (gatewayMediaDropped)
                     {
-                        logger.info(SipGatewaySession.this.callContext
-                            + " RTP resumed for " + getSipCall());
+                        logger.info("RTP resumed for " + getSipCall());
                     }
                     gatewayMediaDropped = false;
                 }
@@ -1474,8 +1476,7 @@ public class SipGatewaySession
             catch(IOException e)
             {
                 //Should not happen
-                logger.error(SipGatewaySession.this.callContext
-                    + " Should not happen exception", e);
+                logger.error("Should not happen exception", e);
             }
         }
     }
@@ -1501,10 +1502,8 @@ public class SipGatewaySession
             // Once call is started notify SIP gateway
             if (call.getCallState() == CallState.CALL_IN_PROGRESS)
             {
-                logger.info(SipGatewaySession.this.callContext + " Sip call IN_PROGRESS: " + call);
-
-                logger.info(SipGatewaySession.this.callContext + " SIP call format used: "
-                    + Util.getFirstPeerMediaFormat(call));
+                logger.info("Sip call IN_PROGRESS: " + call);
+                logger.info("SIP call format used: " + Util.getFirstPeerMediaFormat(call));
 
                 if (jvbConference.getAudioModeration() != null)
                 {
@@ -1513,8 +1512,7 @@ public class SipGatewaySession
             }
             else if (call.getCallState() == CallState.CALL_ENDED)
             {
-                logger.info(SipGatewaySession.this.callContext
-                    + " SIP call ended: " + cause);
+                logger.info("SIP call ended: " + cause);
 
                 if (peerStateListener != null)
                     peerStateListener.unregister();
@@ -1574,7 +1572,7 @@ public class SipGatewaySession
             CallPeerState callPeerState = (CallPeerState)evt.getNewValue();
             String stateString = callPeerState.getStateString();
 
-            logger.info(callContext + " SIP peer state: " + stateString);
+            logger.info("SIP peer state: " + stateString);
 
             // The sip side set the state only when it is outgoing call and is connected
             if (jvbConference != null
@@ -1615,7 +1613,7 @@ public class SipGatewaySession
                 }
                 catch(OperationFailedException e)
                 {
-                    logger.error(SipGatewaySession.this.callContext + " Error processing json ", e);
+                    logger.error("Error processing json ", e);
                 }
             });
         }
@@ -1640,8 +1638,7 @@ public class SipGatewaySession
 
                     if (cancel)
                     {
-                        logger.info(SipGatewaySession.this.callContext
-                            + " Wait thread cancelled");
+                        logger.info("Wait thread cancelled");
                         return;
                     }
 
@@ -1653,10 +1650,7 @@ public class SipGatewaySession
 
                         if (defaultRoom != null)
                         {
-                            logger.info(
-                                SipGatewaySession.this.callContext
-                                + "Using default JVB room name property "
-                                + defaultRoom);
+                            logger.info("Using default JVB room name property " + defaultRoom);
 
                             callContext.setRoomName(defaultRoom);
 
@@ -1664,8 +1658,7 @@ public class SipGatewaySession
                         }
                         else
                         {
-                            logger.warn(SipGatewaySession.this.callContext
-                                + " No JVB room name provided in INVITE header");
+                            logger.warn("No JVB room name provided in INVITE header");
 
                             hangUp(OperationSetBasicTelephony.HANGUP_REASON_BUSY_HERE, "No JVB room name provided");
                         }
@@ -1677,7 +1670,7 @@ public class SipGatewaySession
                 }
                 catch(XmppStringprepException e)
                 {
-                    logger.error(SipGatewaySession.this.callContext + " Malformed default JVB room name.", e);
+                    logger.error("Malformed default JVB room name.", e);
 
                     hangUp(OperationSetBasicTelephony.HANGUP_REASON_BUSY_HERE, "No JVB room name provided");
                 }
