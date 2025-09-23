@@ -787,8 +787,8 @@ public class Participant
     public static final String MINIO_SERVER = "http://10.2.6.25:9015";
     public static final String MINIO_ACCESS_KEY = "gR8zCgD0Ld0wMZkAGuei";
     public static final String MINIO_SECRET_KEY = "jWLIWZqrVdEZ13phmrqNQX53IqHssNacn0vaJpXv";
-    public static final String MINIO_BUCKET = "prod-audio-meeting";
-    public static final String MINIO_BUCKET_TXT = "prod-txt-meeting";
+    public static final String MINIO_BUCKET = "dev-audio-meeting";
+    public static final String MINIO_BUCKET_TXT = "dev-txt-meeting";
     public MinioClient buildClient() {
         return MinioClient.builder()
                 .endpoint(MINIO_SERVER)
