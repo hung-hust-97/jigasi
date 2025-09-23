@@ -547,7 +547,7 @@ public class Participant
         if (logger.isDebugEnabled())
             logger.debug(result);
         transcriber.notify(result);
-        this.putFileTextToBucket(result.getName()+ ": " + result.getAlternatives().iterator().next().getTranscription() , result.getParticipant().getRoomId() + "/" + result.getName() + "/" + new Date());
+        this.putFileTextToBucket(result.getName()+ "(" + result.getTimeStamp() + ") " +": " + result.getAlternatives().iterator().next().getTranscription() , result.getParticipant().getRoomId() + "/" + result.getName() + "/" + new Date());
     }
 
     @Override
