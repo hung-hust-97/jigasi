@@ -33,6 +33,7 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.*;
 import java.nio.charset.StandardCharsets;
+import java.time.ZoneId;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Locale;
@@ -547,7 +548,7 @@ public class Participant
         if (logger.isDebugEnabled())
             logger.debug(result);
         transcriber.notify(result);
-        this.putFileTextToBucket(result.getName()+ "(" + result.getTimeStamp() + ") " +": " + result.getAlternatives().iterator().next().getTranscription() , result.getParticipant().getRoomId() + "/" + result.getName() + "/" + new Date());
+        this.putFileTextToBucket(result.getName()+ " (" + result.getTimeStamp().atZone(ZoneId.of("Asia/Ho_Chi_Minh")) + ") " +": " + result.getAlternatives().iterator().next().getTranscription() , result.getParticipant().getRoomId() + "/" + result.getName() + "/" + new Date());
     }
 
     @Override
