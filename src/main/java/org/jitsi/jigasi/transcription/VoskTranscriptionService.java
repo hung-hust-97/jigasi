@@ -28,6 +28,7 @@ import org.eclipse.jetty.websocket.client.*;
 import org.jitsi.jigasi.constant.EventWsAIEnum;
 import org.jitsi.jigasi.transcription.config.ClientConfig;
 import org.jitsi.jigasi.transcription.config.DataClientConfig;
+import org.jitsi.jigasi.transcription.utils.Language;
 import org.json.*;
 import org.jitsi.jigasi.*;
 import org.jitsi.utils.logging.*;
@@ -35,6 +36,9 @@ import org.jitsi.utils.logging.*;
 import javax.media.format.*;
 import java.io.*;
 import java.net.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.*;
 import java.time.*;
 import java.util.*;
@@ -267,7 +271,36 @@ public class VoskTranscriptionService
             }
             this.session = session;
         }
+        private String translateAPI(Translation translation) {
+            try {
+                HttpClient client = HttpClient.newHttpClient();
+                JSONObject jsonRequest = new JSONObject();
+                jsonRequest.put("q", translation.getQ());
+                jsonRequest.put("source", translation.getSource());
+                jsonRequest.put("target", translation.getTarget());
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create("https://api.example.com/translate"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonRequest.toString()))
+                        .build();
 
+                // Gửi request đồng bộ (hoặc sendAsync nếu muốn không block)
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 200) {
+                    JSONObject jsonResponse = new JSONObject(response.body());
+                    JSONObject translatedText = jsonResponse.getJSONObject("translations");
+                    String resultText = translatedText.getString("translatedText");
+                    logger.info("Translated text: " + resultText);
+                    return resultText;
+                } else {
+                    logger.warn("Failed to translate: " + response.statusCode());
+                }
+            } catch (Exception e) {
+                logger.error("Error calling translation API", e);
+            }
+
+            return null;
+        }
         @OnWebSocketMessage
         public void onMessage(String msg) {
             boolean partial = true;
@@ -275,6 +308,7 @@ public class VoskTranscriptionService
             if (logger.isDebugEnabled())
                 logger.debug(debugName + "Recieved response: " + msg);
             JSONObject jsonObject = new JSONObject(msg);
+            logger.info("response: " + jsonObject.toString());
             String message = "";
             try {
                 JSONObject dataObject = jsonObject.getJSONObject("data");
@@ -292,7 +326,9 @@ public class VoskTranscriptionService
 //                result = obj.getString("text");
 //            }
 		  result = message;
-
+          Translation translation = new Translation(result, Language.EN, Language.VN);
+          String translatedText = translateAPI(translation);
+          result = message + "\n" + translatedText;
             //if (!result.isEmpty() && (!partial || !result.equals(lastResult))) {
             if (!result.isEmpty() && !result.equals(lastResult)) {
                 lastResult = result;

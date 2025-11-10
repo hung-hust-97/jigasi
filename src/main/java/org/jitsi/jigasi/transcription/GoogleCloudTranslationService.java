@@ -19,7 +19,7 @@ package org.jitsi.jigasi.transcription;
 
 import com.google.cloud.translate.*;
 import com.google.cloud.translate.Translate.*;
-
+import com.google.cloud.translate.Translation;
 /**
  * Implements a {@link TranslationService} which will use Google Cloud
  * translate API to translate the given text from one language to another.
