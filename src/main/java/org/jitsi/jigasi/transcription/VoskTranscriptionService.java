@@ -18,6 +18,7 @@
 package org.jitsi.jigasi.transcription;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Value;
 import org.bson.*;
 import org.bson.codecs.BsonDocumentCodec;
 import org.bson.codecs.EncoderContext;
@@ -71,7 +72,8 @@ public class VoskTranscriptionService
      */
     public final static String WEBSOCKET_URL
             = "org.jitsi.jigasi.transcription.vosk.websocket_url";
-
+    public final static String API_KEY
+            = "org.jitsi.jigasi.transcription.google.api_key";
     public final static String DEFAULT_WEBSOCKET_URL = "ws://localhost:2700";
 
     private final static String EOF_MESSAGE = "{\"eof\" : 1}";
@@ -278,8 +280,9 @@ public class VoskTranscriptionService
                 jsonRequest.put("q", translation.getQ());
                 jsonRequest.put("source", translation.getSource());
                 jsonRequest.put("target", translation.getTarget());
+                String url = "https://translation.googleapis.com/language/translate/v2?key=" + API_KEY;
                 HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create("https://api.example.com/translate"))
+                        .uri(URI.create(url))
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(jsonRequest.toString()))
                         .build();
