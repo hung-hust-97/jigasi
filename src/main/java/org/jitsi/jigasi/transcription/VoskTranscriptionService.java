@@ -280,7 +280,11 @@ public class VoskTranscriptionService
                 jsonRequest.put("q", translation.getQ());
                 jsonRequest.put("source", translation.getSource());
                 jsonRequest.put("target", translation.getTarget());
-                String url = "https://translation.googleapis.com/language/translate/v2?key=" + API_KEY;
+                String api_key = JigasiBundleActivator.getConfigurationService()
+                        .getString(API_KEY, "");
+                String url = "https://translation.googleapis.com/language/translate/v2?key=" + api_key;
+//                logger.info("Translated url: " + url);
+                logger.info("request " + jsonRequest.toString());
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("Content-Type", "application/json")
@@ -291,10 +295,13 @@ public class VoskTranscriptionService
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
                     JSONObject jsonResponse = new JSONObject(response.body());
-                    JSONObject translatedText = jsonResponse.getJSONObject("translations");
-                    String resultText = translatedText.getString("translatedText");
-                    logger.info("Translated text: " + resultText);
-                    return resultText;
+                    String translatedText = jsonResponse
+                            .getJSONObject("data")
+                            .getJSONArray("translations")
+                            .getJSONObject(0)
+                            .getString("translatedText");
+                    logger.info("Translated text: " + translatedText);
+                    return translatedText;
                 } else {
                     logger.warn("Failed to translate: " + response.statusCode());
                 }
@@ -329,9 +336,14 @@ public class VoskTranscriptionService
 //                result = obj.getString("text");
 //            }
 		  result = message;
-          Translation translation = new Translation(result, Language.EN, Language.VN);
-          String translatedText = translateAPI(translation);
-          result = message + "\n" + translatedText;
+            if(!result.isEmpty() && !result.equals(lastResult)){
+                Translation translation = new Translation(result, Language.EN.getLanguage(), Language.VN.getLanguage());
+                String translatedText = translateAPI(translation);
+                JSONObject jsonRequest = new JSONObject();
+                jsonRequest.put("en", translatedText);
+                jsonRequest.put("vi", result);
+                result = jsonRequest.toString();
+            }
             //if (!result.isEmpty() && (!partial || !result.equals(lastResult))) {
             if (!result.isEmpty() && !result.equals(lastResult)) {
                 lastResult = result;
