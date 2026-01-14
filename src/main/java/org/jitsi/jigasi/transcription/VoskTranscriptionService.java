@@ -75,7 +75,10 @@ public class VoskTranscriptionService
     public final static String API_KEY
             = "org.jitsi.jigasi.transcription.google.api_key";
     public final static String DEFAULT_WEBSOCKET_URL = "ws://localhost:2700";
-
+    public final static String END_POINT
+            = "org.jitsi.jigasi.transcription.translate.endpoint";
+    public final static String VOICE_WS
+            = "org.jitsi.jigasi.voice.ai.stt";
     private final static String EOF_MESSAGE = "{\"eof\" : 1}";
     private CountDownLatch latch = new CountDownLatch(1);
 
@@ -113,8 +116,8 @@ public class VoskTranscriptionService
 //            websocketUrl = null;
 //            return;
 //        }
-//        websocketUrl = (String) urlObject;
-        websocketUrl = "ws://10.2.5.95:18182/asr/" + participant.getRoomId() + participant.getId();
+        String voiceWs = JigasiBundleActivator.getConfigurationService().getString(VOICE_WS, "");
+        websocketUrl = voiceWs + participant.getRoomId() + participant.getId();
         username = participant.getName();
     }
 
@@ -277,12 +280,16 @@ public class VoskTranscriptionService
             try {
                 HttpClient client = HttpClient.newHttpClient();
                 JSONObject jsonRequest = new JSONObject();
-                jsonRequest.put("q", translation.getQ());
-                jsonRequest.put("source", translation.getSource());
-                jsonRequest.put("target", translation.getTarget());
+//                jsonRequest.put("q", translation.getQ());
+//                jsonRequest.put("source", translation.getSource());
+//                jsonRequest.put("target", translation.getTarget());
+                jsonRequest.put("text", translation.getSource());
+                jsonRequest.put("tgt", translation.getTarget());
                 String api_key = JigasiBundleActivator.getConfigurationService()
                         .getString(API_KEY, "");
-                String url = "https://translation.googleapis.com/language/translate/v2?key=" + api_key;
+                String end_point = JigasiBundleActivator.getConfigurationService()
+                        .getString(END_POINT, "");
+                String url = end_point + api_key;
 //                logger.info("Translated url: " + url);
                 logger.info("request " + jsonRequest.toString());
                 HttpRequest request = HttpRequest.newBuilder()
@@ -296,10 +303,7 @@ public class VoskTranscriptionService
                 if (response.statusCode() == 200) {
                     JSONObject jsonResponse = new JSONObject(response.body());
                     String translatedText = jsonResponse
-                            .getJSONObject("data")
-                            .getJSONArray("translations")
-                            .getJSONObject(0)
-                            .getString("translatedText");
+                            .getString("translation");
                     logger.info("Translated text: " + translatedText);
                     return translatedText;
                 } else {

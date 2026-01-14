@@ -4,9 +4,9 @@ import lombok.Getter;
 
 @Getter
 public enum Language {
-    VN("vi") ,
-    EN("en") ,
-    JA("ja") ;
+    VN("Vietnamese") ,
+    EN("English") ,
+    JA("Japanese") ;
 
     private final String language;
     Language(String language) {

@@ -785,25 +785,35 @@ public class Participant
         return buffer.array();
     }
 
-    public static final String MINIO_SERVER = "http://10.2.6.25:9015";
-    public static final String MINIO_ACCESS_KEY = "gR8zCgD0Ld0wMZkAGuei";
-    public static final String MINIO_SECRET_KEY = "jWLIWZqrVdEZ13phmrqNQX53IqHssNacn0vaJpXv";
-    public static final String MINIO_BUCKET = "dev-audio-meeting";
-    public static final String MINIO_BUCKET_TXT = "dev-txt-meeting";
+    public static final String MINIO_SERVER
+            = "org.jitsi.jigasi.minio.config.server";
+    public static final String MINIO_ACCESS_KEY
+            = "org.jitsi.jigasi.minio.config.access_key";
+    public static final String MINIO_SECRET_KEY
+            = "org.jitsi.jigasi.minio.config.secret_key";
+    public final static String MINIO_BUCKET_AUDIO
+            = "org.jitsi.jigasi.minio.config.bucket_audio";
+    public static final String MINIO_BUCKET_TXT
+            = "org.jitsi.jigasi.minio.config.bucket_txt";
     public MinioClient buildClient() {
+        String minioServer = JigasiBundleActivator.getConfigurationService().getString(MINIO_SERVER, "");
+        String minioAccessKey = JigasiBundleActivator.getConfigurationService().getString(MINIO_ACCESS_KEY, "");
+        String minioSecretKey = JigasiBundleActivator.getConfigurationService().getString(MINIO_SECRET_KEY, "");
         return MinioClient.builder()
-                .endpoint(MINIO_SERVER)
-                .credentials(MINIO_ACCESS_KEY, MINIO_SECRET_KEY)
+                .endpoint(minioServer)
+                .credentials(minioAccessKey, minioSecretKey)
                 .build();
     }
 
     public void putFileToBucKet(InputStream inputStream, String pathFile) {
         try {
+            String minioBucketAudio = JigasiBundleActivator.getConfigurationService()
+                    .getString(MINIO_BUCKET_AUDIO, "");
             MinioClient minioClient = buildClient();
             minioClient.putObject(
                     PutObjectArgs
                             .builder()
-                            .bucket(MINIO_BUCKET)
+                            .bucket(minioBucketAudio)
                             .object(pathFile)
                             .stream(inputStream, -1, 10485760)
                             .contentType("audio/wav")
@@ -820,9 +830,11 @@ public class Participant
             byte[] textData = textContent.getBytes(StandardCharsets.UTF_8);
             ByteArrayInputStream inputStream = new ByteArrayInputStream(textData);
             logger.info("Chuẩn bị update");
+            String minioBucketTxt = JigasiBundleActivator.getConfigurationService()
+                    .getString(MINIO_BUCKET_TXT, "");
             minioClient.putObject(
                     PutObjectArgs.builder()
-                            .bucket(MINIO_BUCKET_TXT)
+                            .bucket(minioBucketTxt)
                             .object(pathFile)
                             .stream(inputStream, textData.length, -1)
                             .contentType("text/plain") // MIME type cho file .txt
