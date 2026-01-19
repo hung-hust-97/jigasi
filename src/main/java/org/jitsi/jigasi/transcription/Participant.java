@@ -829,7 +829,7 @@ public class Participant
             MinioClient minioClient = buildClient();
             byte[] textData = textContent.getBytes(StandardCharsets.UTF_8);
             ByteArrayInputStream inputStream = new ByteArrayInputStream(textData);
-            logger.info("Chuẩn bị update");
+//            logger.info("Chuẩn bị update");
             String minioBucketTxt = JigasiBundleActivator.getConfigurationService()
                     .getString(MINIO_BUCKET_TXT, "");
             minioClient.putObject(
@@ -840,7 +840,7 @@ public class Participant
                             .contentType("text/plain") // MIME type cho file .txt
                             .build()
             );
-            logger.info("Upload: " + pathFile);
+//            logger.info("Upload: " + pathFile);
         } catch (Exception e) {
             throw new RuntimeException("Error uploading TXT file: " + e.getMessage());
         }

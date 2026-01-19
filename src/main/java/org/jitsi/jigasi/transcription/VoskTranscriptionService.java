@@ -116,8 +116,7 @@ public class VoskTranscriptionService
 //            websocketUrl = null;
 //            return;
 //        }
-        String voiceWs = JigasiBundleActivator.getConfigurationService().getString(VOICE_WS, "");
-        websocketUrl = voiceWs + participant.getRoomId() + participant.getId();
+        websocketUrl = JigasiBundleActivator.getConfigurationService().getString(VOICE_WS, "") + participant.getRoomId() + participant.getId();
         username = participant.getName();
     }
 
@@ -280,18 +279,17 @@ public class VoskTranscriptionService
             try {
                 HttpClient client = HttpClient.newHttpClient();
                 JSONObject jsonRequest = new JSONObject();
-//                jsonRequest.put("q", translation.getQ());
-//                jsonRequest.put("source", translation.getSource());
-//                jsonRequest.put("target", translation.getTarget());
-                jsonRequest.put("text", translation.getSource());
+                jsonRequest.put("text", translation.getQ());
                 jsonRequest.put("tgt", translation.getTarget());
                 String api_key = JigasiBundleActivator.getConfigurationService()
-                        .getString(API_KEY, "");
-                String end_point = JigasiBundleActivator.getConfigurationService()
+                        .getString(API_KEY, "default");
+                String url = JigasiBundleActivator.getConfigurationService()
                         .getString(END_POINT, "");
-                String url = end_point + api_key;
+                if(!Objects.equals(api_key,"default" )) {
+                    url += api_key;
+                }
 //                logger.info("Translated url: " + url);
-                logger.info("request " + jsonRequest.toString());
+//                logger.info("request " + jsonRequest.toString());
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("Content-Type", "application/json")
@@ -304,7 +302,7 @@ public class VoskTranscriptionService
                     JSONObject jsonResponse = new JSONObject(response.body());
                     String translatedText = jsonResponse
                             .getString("translation");
-                    logger.info("Translated text: " + translatedText);
+//                    logger.info("Translated text: " + translatedText);
                     return translatedText;
                 } else {
                     logger.warn("Failed to translate: " + response.statusCode());
@@ -319,16 +317,15 @@ public class VoskTranscriptionService
         public void onMessage(String msg) {
             boolean partial = true;
             String result = "";
-            if (logger.isDebugEnabled())
-                logger.debug(debugName + "Recieved response: " + msg);
+//            if (logger.isDebugEnabled())
+//                logger.debug(debugName + "Recieved response: " + msg);
             JSONObject jsonObject = new JSONObject(msg);
-            logger.info("response: " + jsonObject.toString());
+//            logger.info("response: " + jsonObject.toString());
             String message = "";
             try {
                 JSONObject dataObject = jsonObject.getJSONObject("data");
                 message = dataObject.getString("predict_segment");
-                logger.info("active");
-                logger.info(username + ": " + message);
+//                logger.info(username + ": " + message);
             } catch (Exception e) {
             }
 
