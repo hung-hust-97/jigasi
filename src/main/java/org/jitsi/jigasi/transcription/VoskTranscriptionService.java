@@ -18,33 +18,30 @@
 package org.jitsi.jigasi.transcription;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.Value;
-import org.bson.*;
-import org.bson.codecs.BsonDocumentCodec;
-import org.bson.codecs.EncoderContext;
-import org.bson.io.BasicOutputBuffer;
-import org.eclipse.jetty.websocket.api.*;
+import io.socket.client.IO;
+import io.socket.client.Socket;
+import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.annotations.*;
-import org.eclipse.jetty.websocket.client.*;
+import org.eclipse.jetty.websocket.client.WebSocketClient;
+import org.jitsi.jigasi.JigasiBundleActivator;
 import org.jitsi.jigasi.constant.EventWsAIEnum;
 import org.jitsi.jigasi.transcription.config.ClientConfig;
 import org.jitsi.jigasi.transcription.config.DataClientConfig;
 import org.jitsi.jigasi.transcription.utils.Language;
-import org.json.*;
-import org.jitsi.jigasi.*;
-import org.jitsi.utils.logging.*;
+import org.jitsi.utils.logging.Logger;
+import org.json.JSONObject;
 
-import javax.media.format.*;
-import java.io.*;
-import java.net.*;
+import javax.media.format.AudioFormat;
+import java.io.IOException;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.*;
-import java.time.*;
+import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.*;
-import java.util.function.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 
 /**
@@ -80,12 +77,12 @@ public class VoskTranscriptionService
     public final static String VOICE_WS
             = "org.jitsi.jigasi.voice.ai.stt";
     private final static String EOF_MESSAGE = "{\"eof\" : 1}";
-    private CountDownLatch latch = new CountDownLatch(1);
+    private final CountDownLatch latch = new CountDownLatch(1);
 
     /**
      * The config value of the websocket to the speech-to-text service.
      */
-    private String websocketUrlConfig;
+    private final String websocketUrlConfig;
 
     /**
      * The URL of the websocket to the speech-to-text service.
@@ -99,24 +96,8 @@ public class VoskTranscriptionService
      */
     private void generateWebsocketUrl(Participant participant)
             throws org.json.simple.parser.ParseException {
-//        if (!supportsLanguageRouting())
-//        {
-//            websocketUrl = websocketUrlConfig;
-//            return;
-//        }
-//
-//        org.json.simple.parser.JSONParser jsonParser = new org.json.simple.parser.JSONParser();
-//        Object obj = jsonParser.parse(websocketUrlConfig);
-//        org.json.simple.JSONObject languageMap = (org.json.simple.JSONObject) obj;
-//        String language = participant.getSourceLanguage() != null ? participant.getSourceLanguage() : "en";
-//        Object urlObject = languageMap.get(language);
-//        if (!(urlObject instanceof String))
-//        {
-//            logger.error("No websocket URL configured for language " + language);
-//            websocketUrl = null;
-//            return;
-//        }
-        websocketUrl = JigasiBundleActivator.getConfigurationService().getString(VOICE_WS, "") + participant.getRoomId() + participant.getId();
+        // Lấy base URL từ config (ví dụ: https://stream-voices.cmcati.vn)
+        websocketUrl = JigasiBundleActivator.getConfigurationService().getString(VOICE_WS, "");
         username = participant.getName();
     }
 
@@ -212,21 +193,25 @@ public class VoskTranscriptionService
 
     /**
      * A Transcription session for transcribing streams, handles
-     * the lifecycle of websocket
+     * the lifecycle of Socket.IO connection
      */
-    @WebSocket
     public class VoskWebsocketStreamingSession
             implements StreamingRecognitionSession {
-        private Session session;
+        private final Socket socket;
         /* The name of the participant */
         private final String debugName;
         /* The sample rate of the audio stream we collect from the first request */
-        private double sampleRate = -1.0;
+        private final double sampleRate = -1.0;
         /* Last returned result so we do not return the same string twice */
         private String lastResult = "";
         /* Transcription language requested by the user who requested the transcription */
         private String transcriptionTag = "en-US";
-
+        private final CountDownLatch socketIoConnectLatch = new CountDownLatch(1);
+        private final CountDownLatch sessionReadyLatch = new CountDownLatch(1);
+        /* Session ID for Socket.IO connection */
+        private String sessionId;
+        /* Segment ID counter for audio chunks */
+        private int segmentId = 0;
         /**
          * List of TranscriptionListeners which will be notified when a
          * result comes in
@@ -241,40 +226,70 @@ public class VoskTranscriptionService
 
         VoskWebsocketStreamingSession(String debugName)
                 throws Exception {
+            logger.info("=== Creating VoskWebsocketStreamingSession for " + debugName + " ===");
             this.debugName = debugName;
-            WebSocketClient ws = new WebSocketClient();
-            ws.setMaxTextMessageSize(99999);
-            ws.start();
-            ws.connect(this, new URI(websocketUrl));
+            logger.info("Configuring Socket.IO options for URL: " + websocketUrl);
+            IO.Options opts = new IO.Options();
+            opts.transports = new String[]{"websocket"};
+            opts.path = "/raw";
+            opts.reconnection = true;
+            opts.reconnectionAttempts = 10;
+            opts.reconnectionDelay = 3000;
+            opts.reconnectionDelayMax = 10000;
+            opts.randomizationFactor = 0.5;
+            logger.info("Socket.IO options configured: path=" + opts.path + ", transports=" + Arrays.toString(opts.transports));
+
+            socket = IO.socket(websocketUrl, opts);
+
+            setupSocketListeners();
+
+            socket.connect();
+
+            boolean connected = latch.await(10, TimeUnit.SECONDS);
+//            logger.info("Latch await completed, connected: " + connected);
         }
 
-        @OnWebSocketClose
-        public void onClose(int statusCode, String reason) {
-            this.session = null;
+        private void setupSocketListeners() {
+            logger.info("Setting up Socket.IO listeners for " + debugName);
+
+            socket.on("connect", args -> {
+                logger.info("Tuan meo === Connected to Socket.IO, socketId=" + socket.id());
+                JSONObject payload = new JSONObject();
+                payload.put("session_id", "11111111111111"); // byte[] -> attachment
+                socket.emit("session_request", payload);
+                JSONObject payload1 = new JSONObject();
+                socket.emit("set_loop_emit_raw", payload1);
+                socketIoConnectLatch.countDown();
+            });
+
+            socket.on("session_confirm", args -> {
+                logger.info("Session confirmed: " + args.length);
+                Object data = args[0];
+                sessionId = data.toString();
+                sessionReadyLatch.countDown();
+            });
+            socket.on("connect_error", args -> {
+                if (args.length > 0 && args[0] instanceof Throwable) {
+                    Throwable err = (Throwable) args[0];
+                    logger.error("Socket.IO error for " + debugName + ": " + err.getMessage(), err);
+                } else {
+                    logger.error("Socket.IO error for " + debugName + ", args: " + Arrays.toString(args));
+                }
+            });
+
+            // Lắng nghe event "asr_uttered" để nhận kết quả từ server
+            socket.on("asr_uttered", args -> {
+                if (args.length == 0) return;
+                Object data = args[0];
+                if (data instanceof JSONObject) {
+                    JSONObject json = (JSONObject) data;
+                    onMessage(json.toString());
+                } else {
+                    logger.info("data = {}" + data.toString());
+                }
+            });
         }
 
-        @OnWebSocketConnect
-        public void onConnect(Session session) {
-            try {
-                logger.info("opened connection " + websocketUrl);
-                latch.countDown();
-                ObjectMapper objectMapper = new ObjectMapper();
-
-                ClientConfig clientConfig = ClientConfig
-                        .builder()
-                        .type(EventWsAIEnum.EVENT_RECEIVE_CLIENT_CONFIG.getName())
-                        .data(DataClientConfig
-                                .builder()
-                                .is_recording(true)
-                                .build())
-                        .build();
-                String json = objectMapper.writeValueAsString(clientConfig);
-                session.getRemote().sendString(json);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-            this.session = session;
-        }
         private String translateAPI(Translation translation) {
             try {
                 HttpClient client = HttpClient.newHttpClient();
@@ -285,25 +300,21 @@ public class VoskTranscriptionService
                         .getString(API_KEY, "default");
                 String url = JigasiBundleActivator.getConfigurationService()
                         .getString(END_POINT, "");
-                if(!Objects.equals(api_key,"default" )) {
+                if (!Objects.equals(api_key, "default")) {
                     url += api_key;
                 }
-//                logger.info("Translated url: " + url);
-//                logger.info("request " + jsonRequest.toString());
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(jsonRequest.toString()))
                         .build();
 
-                // Gửi request đồng bộ (hoặc sendAsync nếu muốn không block)
+                // Gửi request đồng bộ
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
                     JSONObject jsonResponse = new JSONObject(response.body());
-                    String translatedText = jsonResponse
+                    return jsonResponse
                             .getString("translation");
-//                    logger.info("Translated text: " + translatedText);
-                    return translatedText;
                 } else {
                     logger.warn("Failed to translate: " + response.statusCode());
                 }
@@ -313,31 +324,19 @@ public class VoskTranscriptionService
 
             return null;
         }
-        @OnWebSocketMessage
+
         public void onMessage(String msg) {
             boolean partial = true;
             String result = "";
-//            if (logger.isDebugEnabled())
-//                logger.debug(debugName + "Recieved response: " + msg);
             JSONObject jsonObject = new JSONObject(msg);
-//            logger.info("response: " + jsonObject.toString());
+            logger.info("response: " + jsonObject);
             String message = "";
             try {
-                JSONObject dataObject = jsonObject.getJSONObject("data");
-                message = dataObject.getString("predict_segment");
-//                logger.info(username + ": " + message);
+                message = jsonObject.getString("predict_segment");
             } catch (Exception e) {
             }
-
-//            JSONObject obj = new JSONObject("{\"partial\" : \"" + message + "\"}");
-//            if (obj.has("partial")) {
-//                result = obj.getString("partial");
-//            } else {
-//                partial = false;
-//                result = obj.getString("text");
-//            }
-		  result = message;
-            if(!result.isEmpty() && !result.equals(lastResult)){
+            result = message;
+            if (!result.isEmpty() && !result.equals(lastResult)) {
                 Translation translation = new Translation(result, Language.EN.getLanguage(), Language.VN.getLanguage());
                 String translatedText = translateAPI(translation);
                 JSONObject jsonRequest = new JSONObject();
@@ -345,7 +344,6 @@ public class VoskTranscriptionService
                 jsonRequest.put("vi", result);
                 result = jsonRequest.toString();
             }
-            //if (!result.isEmpty() && (!partial || !result.equals(lastResult))) {
             if (!result.isEmpty() && !result.equals(lastResult)) {
                 lastResult = result;
                 for (TranscriptionListener l : listeners) {
@@ -368,28 +366,25 @@ public class VoskTranscriptionService
             }
         }
 
-        @OnWebSocketError
-        public void onError(Throwable cause) {
-            logger.error("Error while streaming audio data to transcription service", cause);
-        }
-
         public void sendRequest(TranscriptionRequest request) {
             try {
-                BsonDocument document = new BsonDocument();
-                document.put("type", new BsonString(EventWsAIEnum.EVENT_RECEIVE_ADMIN_PUSH_AUDIO.getName()));
-                BsonDocument data = new BsonDocument();
-                data.put("blob_data", new BsonBinary(request.getAudio()));
-                data.put("is_end_streaming", new BsonBoolean(false));
-                data.put("segment_id", new BsonString(String.valueOf(0)));
-                document.put("data", data);
-                BasicOutputBuffer buffer = new BasicOutputBuffer();
-                BsonDocumentCodec codec = new BsonDocumentCodec();
-                codec.encode(new BsonBinaryWriter(buffer), document, EncoderContext.builder().isEncodingCollectibleDocument(true).build());
-                byte[] serializedData = buffer.toByteArray();
-                session.getRemote().sendBytes(ByteBuffer.wrap(serializedData));
+
+                if (socket == null || !socket.connected()) {
+                    logger.warn("Socket.IO not connected, cannot send audio for " + debugName);
+                    return;
+                }
+
+                // { blob_data: arr, segment_id: chunkID, session_id: this.ssId }
+                byte[] audioData = request.getAudio(); // PCM 16-bit mono 48k
+                JSONObject payload = new JSONObject();
+                payload.put("blob_data", audioData); // byte[] -> attachment
+                payload.put("segment_id", segmentId++);
+                payload.put("session_id", sessionId);
+                socket.emit("user_uttered", payload);
+                logger.info("user_uttered sessionId: " + sessionId);
 
             } catch (Exception e) {
-                logger.error("Error to send websocket request for participant " + debugName, e);
+                logger.error("Error to send Socket.IO request for participant " + debugName, e);
             }
         }
 
@@ -399,14 +394,18 @@ public class VoskTranscriptionService
 
         public void end() {
             try {
-                //session.getRemote().sendString(EOF_MESSAGE);
+                if (socket != null && socket.connected()) {
+                    // Có thể gửi signal kết thúc streaming nếu server yêu cầu
+                    // Hiện tại chỉ disconnect, không cần gửi signal đặc biệt
+                    socket.disconnect();
+                }
             } catch (Exception e) {
-                logger.error("Error to finalize websocket connection for participant " + debugName, e);
+                logger.error("Error to finalize Socket.IO connection for participant " + debugName, e);
             }
         }
 
         public boolean ended() {
-            return session == null;
+            return socket == null || !socket.connected();
         }
     }
 
@@ -420,9 +419,9 @@ public class VoskTranscriptionService
 
         /* Request we need to process */
         private final TranscriptionRequest request;
-
+        private final CountDownLatch jettyWsConnectLatch = new CountDownLatch(1);
         /* Collect results*/
-        private StringBuilder result;
+        private final StringBuilder result;
 
         VoskWebsocketSession(TranscriptionRequest request) {
             this.closeLatch = new CountDownLatch(1);
@@ -438,7 +437,7 @@ public class VoskTranscriptionService
         @OnWebSocketConnect
         public void onConnect(Session session) {
             try {
-                latch.countDown();
+                jettyWsConnectLatch.countDown();
                 ObjectMapper objectMapper = new ObjectMapper();
 
                 ClientConfig clientConfig = ClientConfig
