@@ -4,13 +4,15 @@ import lombok.Getter;
 
 @Getter
 public enum Language {
-    VN("Vietnamese") ,
-    EN("English") ,
-    JA("Japanese") ;
+    VN("Vietnamese","vi") ,
+    EN("English", "en") ,
+    JA("Japanese", "ja") ;
 
     private final String language;
-    Language(String language) {
+    private final String languageCode;
+    Language(String language, String languageCode) {
         this.language = language;
+        this.languageCode = languageCode;
     }
 
 }

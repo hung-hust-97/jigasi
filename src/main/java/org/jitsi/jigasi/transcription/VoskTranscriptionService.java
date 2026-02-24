@@ -37,6 +37,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
@@ -74,6 +75,8 @@ public class VoskTranscriptionService
     public final static String DEFAULT_WEBSOCKET_URL = "ws://localhost:2700";
     public final static String END_POINT
             = "org.jitsi.jigasi.transcription.translate.endpoint";
+    public final static String AI_SERVICE
+            = "org.jitsi.jigasi.transcription.translate.aiservice";
     public final static String VOICE_WS
             = "org.jitsi.jigasi.voice.ai.stt";
     private final static String EOF_MESSAGE = "{\"eof\" : 1}";
@@ -294,8 +297,19 @@ public class VoskTranscriptionService
             try {
                 HttpClient client = HttpClient.newHttpClient();
                 JSONObject jsonRequest = new JSONObject();
-                jsonRequest.put("text", translation.getQ());
-                jsonRequest.put("tgt", translation.getTarget());
+                String aiService = JigasiBundleActivator.getConfigurationService()
+                        .getString(AI_SERVICE, "gemma");
+
+                if (aiService.equalsIgnoreCase("gemma")) {
+                    logger.info("Using Gemma translation service");
+                    jsonRequest.put("source_lang_code", translation.getSource().getLanguageCode());
+                    jsonRequest.put("target_lang_code", translation.getTarget().getLanguageCode());
+                    jsonRequest.put("text", translation.getQ());
+                } else {
+                    logger.info("Using Tencent translation service");
+                    jsonRequest.put("text", translation.getQ());
+                    jsonRequest.put("tgt", translation.getTarget().getLanguage());
+                }
                 String api_key = JigasiBundleActivator.getConfigurationService()
                         .getString(API_KEY, "default");
                 String url = JigasiBundleActivator.getConfigurationService()
@@ -304,9 +318,10 @@ public class VoskTranscriptionService
                     url += api_key;
                 }
                 HttpRequest request = HttpRequest.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
                         .uri(URI.create(url))
                         .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonRequest.toString()))
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(jsonRequest.toString().getBytes(StandardCharsets.UTF_8)))
                         .build();
 
                 // Gửi request đồng bộ
@@ -316,7 +331,7 @@ public class VoskTranscriptionService
                     return jsonResponse
                             .getString("translation");
                 } else {
-                    logger.warn("Failed to translate: " + response.statusCode());
+                    logger.warn("Failed to translate: " + response.body());
                 }
             } catch (Exception e) {
                 logger.error("Error calling translation API", e);
@@ -329,7 +344,6 @@ public class VoskTranscriptionService
             boolean partial = true;
             String result = "";
             JSONObject jsonObject = new JSONObject(msg);
-            logger.info("response: " + jsonObject);
             String message = "";
             try {
                 message = jsonObject.getString("predict_segment");
@@ -337,7 +351,7 @@ public class VoskTranscriptionService
             }
             result = message;
             if (!result.isEmpty() && !result.equals(lastResult)) {
-                Translation translation = new Translation(result, Language.EN.getLanguage(), Language.VN.getLanguage());
+                Translation translation = new Translation(result, Language.EN, Language.VN);
                 String translatedText = translateAPI(translation);
                 JSONObject jsonRequest = new JSONObject();
                 jsonRequest.put("en", translatedText);

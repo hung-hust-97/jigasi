@@ -8,10 +8,10 @@ import org.jitsi.jigasi.transcription.utils.Language;
 @Getter
 public class Translation {
     private String q;
-    private String target;
-    private String source;
+    private Language target;
+    private Language source;
 
-    public Translation(String q, String target, String source) {
+    public Translation(String q, Language target, Language source) {
         this.q = q;
         this.target = target;
         this.source = source;
