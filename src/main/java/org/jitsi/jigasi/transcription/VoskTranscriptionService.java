@@ -20,6 +20,7 @@ package org.jitsi.jigasi.transcription;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.socket.client.IO;
 import io.socket.client.Socket;
+import org.eclipse.jetty.websocket.api.Callback;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.annotations.*;
 import org.eclipse.jetty.websocket.client.WebSocketClient;
@@ -37,6 +38,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
@@ -256,7 +258,6 @@ public class VoskTranscriptionService
             logger.info("Setting up Socket.IO listeners for " + debugName);
 
             socket.on("connect", args -> {
-                logger.info("Tuan meo === Connected to Socket.IO, socketId=" + socket.id());
                 JSONObject payload = new JSONObject();
                 payload.put("session_id", "11111111111111"); // byte[] -> attachment
                 socket.emit("session_request", payload);
@@ -266,7 +267,6 @@ public class VoskTranscriptionService
             });
 
             socket.on("session_confirm", args -> {
-                logger.info("Session confirmed: " + args.length);
                 Object data = args[0];
                 sessionId = data.toString();
                 sessionReadyLatch.countDown();
@@ -448,25 +448,14 @@ public class VoskTranscriptionService
             this.closeLatch.countDown(); // trigger latch
         }
 
-        @OnWebSocketConnect
-        public void onConnect(Session session) {
-            try {
-                jettyWsConnectLatch.countDown();
-                ObjectMapper objectMapper = new ObjectMapper();
-
-                ClientConfig clientConfig = ClientConfig
-                        .builder()
-                        .type(EventWsAIEnum.EVENT_RECEIVE_CLIENT_CONFIG.getName())
-                        .data(DataClientConfig
-                                .builder()
-                                .is_recording(true)
-                                .build())
-                        .build();
-                String json = objectMapper.writeValueAsString(clientConfig);
-                session.getRemote().sendString(json);
-            } catch (IOException e) {
-                logger.error("Error to transcribe audio", e);
-            }
+        @OnWebSocketOpen
+        public void onConnect(Session session)
+        {
+            AudioFormat format = request.getFormat();
+            session.sendText("{\"config\" : {\"sample_rate\" : " + format.getSampleRate() + "}}", Callback.NOOP);
+            ByteBuffer audioBuffer = ByteBuffer.wrap(request.getAudio());
+            session.sendBinary(audioBuffer, Callback.NOOP);
+            session.sendText(EOF_MESSAGE, Callback.NOOP);
         }
 
         @OnWebSocketMessage
