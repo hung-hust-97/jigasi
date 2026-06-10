@@ -588,6 +588,12 @@ public class Participant
             if (silenceFilter != null) {
                 silenceFilter.giveSegment(audio);
                 if (silenceFilter.shouldFilter()) {
+                    if (silenceFilter.speechEnded()) {
+                        if (buffer.position() > 0) {
+                            sendRequest(buffer.array());
+                            ((Buffer) buffer).clear();
+                        }
+                    }
                     return;
                 } else if (silenceFilter.newSpeech()) {
                     // we need to cast here to keep compatability when moving between java8 and java11

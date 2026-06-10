@@ -69,7 +69,7 @@ public class Transcriber
     /**
      * Default value for property FILTER_SILENCE
      */
-    public final static boolean FILTER_SILENCE_DEFAULT_VALUE = false;
+    public final static boolean FILTER_SILENCE_DEFAULT_VALUE = true;
 
     /**
      * The states the transcriber can be in. The Transcriber

@@ -125,4 +125,15 @@ public class SilenceFilter
         return !previousSegmentWasSpeech && isCurrentlySpeech;
     }
 
+    /**
+     * Whether the last given segment indicated that the audio transitioned
+     * from speech to silence.
+     *
+     * @return true when speech transitioned to silence.
+     */
+    public boolean speechEnded()
+    {
+        return previousSegmentWasSpeech && !isCurrentlySpeech;
+    }
+
 }
