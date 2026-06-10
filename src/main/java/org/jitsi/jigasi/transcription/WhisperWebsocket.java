@@ -56,7 +56,7 @@ public class WhisperWebsocket
 
     private Map<String, UUID> participantTranscriptionIds= new ConcurrentHashMap<>();
 
-    private static final int maxRetryAttempts = 10;
+    private static final int maxRetryAttempts = 3;
 
 
     /* Transcription language requested by the user who started the transcription */
@@ -120,6 +120,8 @@ public class WhisperWebsocket
     private WebSocketClient ws;
 
     private boolean reconnecting = false;
+
+    private final static long CONNECTION_TIMEOUT_MS = 15000L;
 
     static
     {
@@ -193,6 +195,7 @@ public class WhisperWebsocket
         long waitTime = 1000L;
         boolean isConnected = false;
         wsSession = null;
+        WebSocketClient localWs = null;
         // avoid executing if meeting ended (we are not running) while we were reconnecting
         while (attempt < maxRetryAttempts && !(reconnecting && !isRunning()) && !isConnected)
         {
@@ -206,10 +209,12 @@ public class WhisperWebsocket
                     upgradeRequest.setHeader("Authorization", "Bearer " +
                         Util.generateAsapToken(privateKey, privateKeyName, jwtAudience, "jigasi"));
                 }
-                ws = new WebSocketClient();
-                ws.start();
-                wsSession = ws.connect(this, new URI(websocketUrl), upgradeRequest).get();
+                localWs = new WebSocketClient();
+                localWs.start();
+                CompletableFuture<Session> futureSession = localWs.connect(this, new URI(websocketUrl), upgradeRequest);
+                wsSession = futureSession.orTimeout(CONNECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS).get();
                 wsSession.setIdleTimeout(Duration.ofSeconds(300));
+                ws = localWs;
                 isConnected = true;
                 reconnecting = false;
                 logger.info("Successfully connected to " + websocketUrl);
@@ -217,6 +222,11 @@ public class WhisperWebsocket
             }
             catch (Exception e)
             {
+                if (localWs != null)
+                {
+                    stopWsClient(localWs);
+                    localWs = null;
+                }
                 Statistics.incrementTotalTranscriberConnectionErrors();
                 int remaining = maxRetryAttempts - attempt;
                 waitTime *= multiplier;
@@ -238,6 +248,18 @@ public class WhisperWebsocket
         {
             Statistics.incrementTotalTranscriberConnectionErrors();
             logger.error("Failed connecting to " + websocketUrl + ". Nothing to do.");
+        }
+    }
+
+    private void stopWsClient(WebSocketClient webSocketClient)
+    {
+        try
+        {
+            webSocketClient.stop();
+        }
+        catch (Exception e)
+        {
+            logger.error("Error stopping failed WebSocketClient", e);
         }
     }
 
@@ -268,7 +290,7 @@ public class WhisperWebsocket
         if (isRunning())
         {
             // let's try to reconnect
-            if (!wsSession.isOpen() || (statusCode > 1000 && statusCode < 2000))
+            if ((wsSession != null && !wsSession.isOpen()) || (statusCode > 1000 && statusCode < 2000))
             {
                 reconnect();
 
@@ -457,15 +479,10 @@ public class WhisperWebsocket
             {
                 logger.info("All participants have left, disconnecting from Whisper transcription server.");
 
-                try
-                {
-                    wsSession.getRemote().sendBytes(EOF_MESSAGE);
-                }
-                catch (IOException e)
-                {
-                    logger.error("Error while finalizing websocket connection for participant "
-                            + participantId, e);
-                }
+                wsSession.sendBinary(EOF_MESSAGE, Callback.from(
+                    () -> {},
+                    cause -> logger.error("Error while finalizing websocket connection for participant "
+                            + participantId, cause)));
 
                 wsSession.disconnect();
                 callback.accept(true);
@@ -482,32 +499,21 @@ public class WhisperWebsocket
             logger.debug("Sending audio for " + participantId);
         }
         addParticipantIfNotExists(participantId, participant);
-        RemoteEndpoint remoteEndpoint = wsSession.getRemote();
-        if (remoteEndpoint == null)
+        if (wsSession == null || !wsSession.isOpen())
         {
             Statistics.incrementTotalTranscriberSendErrors();
             logger.error("Failed sending audio for " + participantId + ". Attempting to reconnect.");
-            if (!wsSession.isOpen())
-            {
-                reconnect();
-            }
-            else
-            {
-                logger.warn("Failed sending audio for " + participantId
-                    + ". RemoteEndpoint is null but sessions is open.");
-            }
+            reconnect();
         }
         else
         {
-            try
-            {
-                remoteEndpoint.sendBytes(buildPayload(participantId, participant, audio));
-            }
-            catch (IOException e)
-            {
-                Statistics.incrementTotalTranscriberSendErrors();
-                logger.error("Failed sending audio for " + participantId + ". " + e);
-            }
+            wsSession.sendBinary(buildPayload(participantId, participant, audio), Callback.from(
+                () -> {},
+                cause ->
+                {
+                    Statistics.incrementTotalTranscriberSendErrors();
+                    logger.error("Failed sending audio for " + participantId + ". " + cause);
+                }));
         }
     }
 

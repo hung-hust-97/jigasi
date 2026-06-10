@@ -426,6 +426,7 @@ public class JvbConference
 
     /**
      * The features for the current xmpp provider we will use later adding to the room presence we send.
+     * We need to initialize this before connecting to make sure features are added correctly.
      */
     private ExtensionElement features = null;
 
@@ -1022,6 +1023,8 @@ public class JvbConference
                     chatRoom.addPresencePacketExtensions(initiator);
                 }
 
+                // we want to add the features just before joining and after connecting
+                // to make sure EntityCapsManager.currentCapsVersion is properly initialized
                 chatRoom.addPresencePacketExtensions(this.features);
 
                 String statsId = JigasiBundleActivator.getConfigurationService().getString(STATS_ID_PNAME);
@@ -1128,6 +1131,13 @@ public class JvbConference
 
             gatewaySession.notifyJvbRoomJoined();
 
+            if (websocketClient != null)
+            {
+                gatewaySession.notifyConferenceLive(true);
+                // websocketClient disconnects internally
+                websocketClient = null;
+            }
+
             // let's listen for any future changes in room configuration, whether lobby will be enabled/disabled
             if (mucRoom instanceof ChatRoomJabberImpl)
             {
@@ -1229,7 +1239,7 @@ public class JvbConference
                 {
                     logger.info("Conference is not live yet.");
 
-                    gatewaySession.notifyConferenceNotLive();
+                    gatewaySession.notifyConferenceLive(false);
 
                     websocketClient = new WebsocketClient(this, visitorsQueueServiceUrl, this.callContext);
                     websocketClient.connect();
