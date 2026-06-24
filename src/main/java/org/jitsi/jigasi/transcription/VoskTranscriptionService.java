@@ -79,6 +79,8 @@ public class VoskTranscriptionService
             = "org.jitsi.jigasi.transcription.translate.endpoint";
     public final static String AI_SERVICE
             = "org.jitsi.jigasi.transcription.translate.aiservice";
+    public final static String AI_MODEL
+            = "org.jitsi.jigasi.transcription.translate.aimodel";
     public final static String VOICE_WS
             = "org.jitsi.jigasi.voice.ai.stt";
     private final static String EOF_MESSAGE = "{\"eof\" : 1}";
@@ -302,9 +304,24 @@ public class VoskTranscriptionService
 
                 if (aiService.equalsIgnoreCase("gemma")) {
                     logger.info("Using Gemma translation service");
-                    jsonRequest.put("source_lang_code", translation.getSource().getLanguageCode());
-                    jsonRequest.put("target_lang_code", translation.getTarget().getLanguageCode());
-                    jsonRequest.put("text", translation.getQ());
+                    String model = JigasiBundleActivator.getConfigurationService()
+                            .getString(AI_MODEL, "google/gemma-4-E2B-it");
+                    String sourceLang = translation.getSource().getLanguage();
+                    String targetLang = translation.getTarget().getLanguage();
+                    String prompt = "Dịch câu sau sang tiếng " + targetLang
+                            + " (chỉ trả về text đã dịch, không thêm gì): "
+                            + translation.getQ();
+
+                    // Build OpenAI-compatible chat completion request
+                    JSONObject userMessage = new JSONObject();
+                    userMessage.put("role", "user");
+                    userMessage.put("content", prompt);
+                    org.json.JSONArray messages = new org.json.JSONArray();
+                    messages.put(userMessage);
+
+                    jsonRequest.put("model", model);
+                    jsonRequest.put("messages", messages);
+                    jsonRequest.put("max_tokens", 500);
                 } else {
                     logger.info("Using Tencent translation service");
                     jsonRequest.put("text", translation.getQ());
@@ -328,8 +345,18 @@ public class VoskTranscriptionService
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() == 200) {
                     JSONObject jsonResponse = new JSONObject(response.body());
-                    return jsonResponse
-                            .getString("translation");
+                    if (aiService.equalsIgnoreCase("gemma")) {
+                        // Parse OpenAI-compatible chat completion response
+                        // Response format: {"choices": [{"message": {"content": "..."}}]}
+                        return jsonResponse
+                                .getJSONArray("choices")
+                                .getJSONObject(0)
+                                .getJSONObject("message")
+                                .getString("content")
+                                .trim();
+                    } else {
+                        return jsonResponse.getString("translation");
+                    }
                 } else {
                     logger.warn("Failed to translate: " + response.body());
                 }
