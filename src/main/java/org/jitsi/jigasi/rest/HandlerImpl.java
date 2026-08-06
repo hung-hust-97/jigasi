@@ -279,8 +279,133 @@ public class HandlerImpl
                 response);
             return true;
         }
+        else if ("/whip/start".equals(target) || "/whip-connect".equals(target))
+        {
+            if (POST_HTTP_METHOD.equals(request.getMethod()))
+            {
+                doHandleWhipStartRequest(request, response);
+            }
+            else
+            {
+                response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            }
+            return true;
+        }
+        else if ("/whip/stop".equals(target) || "/whip-connect/stop".equals(target))
+        {
+            if (POST_HTTP_METHOD.equals(request.getMethod()))
+            {
+                doHandleWhipStopRequest(request, response);
+            }
+            else
+            {
+                response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+            }
+            return true;
+        }
 
         return false;
+    }
+
+    private void doHandleWhipStartRequest(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        try {
+            StringBuilder sb = new StringBuilder();
+            BufferedReader reader = request.getReader();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            String body = sb.toString();
+
+            org.json.simple.JSONObject json = (org.json.simple.JSONObject) new org.json.simple.parser.JSONParser().parse(body);
+            org.jitsi.jigasi.whip.WhipConnectDto dto = new org.jitsi.jigasi.whip.WhipConnectDto();
+            dto.setRoomId((String) json.get("roomId"));
+            dto.setDomain((String) json.get("domain"));
+            dto.setXmppDomain((String) json.get("xmppDomain"));
+            dto.setWhipEndpoint((String) json.get("whipEndpoint"));
+            dto.setTimeSheetId((String) json.get("timeSheetId"));
+
+            Boolean isRecord = (Boolean) json.get("isRecord");
+            if (isRecord != null) dto.setIsRecord(isRecord);
+
+            Boolean useSocketIo = (Boolean) json.get("useSocketIo");
+            if (useSocketIo != null) dto.setUseSocketIo(useSocketIo);
+
+            String nickname = (String) json.get("nickname");
+            if (nickname != null) dto.setNickname(nickname);
+
+            String voiceAiUrl = (String) json.get("voiceAiUrl");
+            if (voiceAiUrl != null) dto.setVoiceAiUrl(voiceAiUrl);
+
+            String cmeetStompUrl = (String) json.get("cmeetStompUrl");
+            if (cmeetStompUrl != null) dto.setCmeetStompUrl(cmeetStompUrl);
+
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader == null || authHeader.trim().isEmpty()) {
+                authHeader = request.getHeader("authorization");
+            }
+            dto.setAuthHeader(authHeader);
+
+            org.jitsi.jigasi.whip.WhipGateway.getInstance().startWhipSession(dto);
+
+            org.json.simple.JSONObject resJson = new org.json.simple.JSONObject();
+            resJson.put("code", 200);
+            resJson.put("message", "Speech to text / WHIP started successfully for room: " + dto.getRoomId());
+            sendJsonResponse(response, resJson);
+        } catch (Exception e) {
+            logger.error("Error starting WHIP session: " + e.getMessage(), e);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            org.json.simple.JSONObject resJson = new org.json.simple.JSONObject();
+            resJson.put("code", 500);
+            resJson.put("message", "Error starting WHIP: " + e.getMessage());
+            sendJsonResponse(response, resJson);
+        }
+    }
+
+    private void doHandleWhipStopRequest(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        try {
+            String roomId = request.getParameter("roomId");
+            String isRecordParam = request.getParameter("isRecord");
+            Boolean isRecord = isRecordParam != null ? Boolean.parseBoolean(isRecordParam) : null;
+
+            if (roomId == null || roomId.trim().isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                BufferedReader reader = request.getReader();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                String body = sb.toString();
+                if (!body.isEmpty()) {
+                    org.json.simple.JSONObject json = (org.json.simple.JSONObject) new org.json.simple.parser.JSONParser().parse(body);
+                    roomId = (String) json.get("roomId");
+                    Boolean jsonIsRecord = (Boolean) json.get("isRecord");
+                    if (jsonIsRecord != null) isRecord = jsonIsRecord;
+                }
+            }
+
+            boolean stopped = org.jitsi.jigasi.whip.WhipGateway.getInstance().stopWhipSession(roomId, isRecord);
+
+            org.json.simple.JSONObject resJson = new org.json.simple.JSONObject();
+            resJson.put("code", stopped ? 200 : 404);
+            resJson.put("message", stopped ? "WHIP session stopped successfully for room: " + roomId : "No active WHIP session found for room: " + roomId);
+            sendJsonResponse(response, resJson);
+        } catch (Exception e) {
+            logger.error("Error stopping WHIP session: " + e.getMessage(), e);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            org.json.simple.JSONObject resJson = new org.json.simple.JSONObject();
+            resJson.put("code", 500);
+            resJson.put("message", "Error stopping WHIP: " + e.getMessage());
+            sendJsonResponse(response, resJson);
+        }
+    }
+
+    private void sendJsonResponse(HttpServletResponse response, org.json.simple.JSONObject json) throws IOException {
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        java.io.PrintWriter out = response.getWriter();
+        out.print(json.toJSONString());
+        out.flush();
     }
 
     /**

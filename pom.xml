@@ -154,6 +154,23 @@
       <version>4.1.0</version>
     </dependency>
 
+    <!-- Spring WebSocket & Messaging for STOMP Client -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-websocket</artifactId>
+      <version>6.1.14</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-messaging</artifactId>
+      <version>6.1.14</version>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+      <version>6.1.14</version>
+    </dependency>
+
     <!-- org.jitsi -->
     <dependency>
       <groupId>${project.groupId}</groupId>
